@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem TNA KPM</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        /* Hide scrollbar for clean look in tables if needed */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900">
+
+    <!-- Container Utama -->
+    <div id="app"></div>
+
+    <script>
+        // --- DATA BERDASARKAN PDF TNA ---
+        const BIDANG_DATA = [
+            { id: 1, bidang: "Aplikasi Psikologi", sub: ["Aplikasi Psikologi Dalam Intervensi", "Aplikasi Psikologi Dalam Penyelidikan"] },
+            { id: 2, bidang: "Bidang Tumpuan Utama Kaunseling", sub: ["Kaunseling Kerjaya", "Kaunseling Kesihatan Mental", "Kaunseling Sekolah"] },
+            { id: 3, bidang: "Bimbingan dan Pementoran", sub: ["Professional Learning Community (PLC)"] },
+            { id: 4, bidang: "Dasar dan Polisi", sub: ["Akta, Undang-Undang dan Peraturan", "Dasar-Dasar Kerajaan", "Pekeliling dan Surat Siaran", "Polisi Pendidikan"] },
+            { id: 5, bidang: "Integriti, Nilai & Etika", sub: ["Kenegaraan", "Pembangunan Nilai Peribadi dan Profesional", "Pengetahuan dan Kepatuhan Etika"] },
+            { id: 6, bidang: "Kandungan Kurikulum", sub: ["Bidang Bahasa", "Bidang Kemanusiaan", "Bidang Sains dan Matematik", "Bidang Teknik dan Vokasional"] },
+            { id: 7, bidang: "Kemahiran Instruksional", sub: ["Metod dan Teknik Pengajaran", "Pedagogi Pengajaran"] },
+            { id: 8, bidang: "Kemahiran Kaunseling", sub: ["Kemahiran Asas Kaunseling"] },
+            { id: 9, bidang: "Kepimpinan Pendidikan", sub: ["Kemahiran Kepimpinan", "Kemahiran Pengurusan", "Pengurusan Kecemerlangan"] },
+            { id: 10, bidang: "Kesejahteraan Psikologi", sub: ["Kesejahteraan Emosi", "Kesejahteraan Kewangan", "Kesejahteraan Pekerjaan", "Kesejahteraan Perhubungan"] },
+            { id: 11, bidang: "Komunikasi", sub: ["Kemahiran Berbahasa", "Kemahiran Menulis", "Kemahiran Perbualan"] },
+            { id: 12, bidang: "Pengurusan Data", sub: ["Penyimpanan dan Pengurusan Data"] },
+            { id: 13, bidang: "Pengurusan Kualiti", sub: ["Pembangunan Kemahiran Kualiti"] },
+            { id: 14, bidang: "Pengurusan Latihan", sub: ["Pelaksanaan Latihan/Program", "Penilaian dan Pemantauan", "Perancangan Latihan/Program"] },
+            { id: 15, bidang: "Pengurusan Organisasi", sub: ["Asas Pengurusan Institusi Pendidikan", "Pengurusan Aset", "Pengurusan Kewangan", "Pengurusan Sumber Manusia"] },
+            { id: 16, bidang: "Pengurusan Strategik", sub: ["Perancangan Strategik"] },
+            { id: 17, bidang: "Pengurusan dan Pendidikan Bekeperluan Khas", sub: ["Kokurikulum dan Sukan", "PdP Pendidikan Khas", "Pengurusan Tingkah Laku", "Pentaksiran MBPK"] },
+            { id: 18, bidang: "Pengurusan dan Pendidikan Prasekolah", sub: ["Keselamatan dan Kesihatan", "PdP Prasekolah", "Pengurusan Prasekolah", "Pengurusan Sumber"] },
+            { id: 19, bidang: "Pengurusan dan Pengoperasian Institusi Pendidikan", sub: ["Pengoperasian Institusi Pendidikan", "Pengurusan Asrama", "Pengurusan Hal Ehwal Murid", "Pengurusan Kokurikulum"] },
+            { id: 20, bidang: "Pengurusan dan Perkhidmatan Kaunseling", sub: ["Pembangunan Profesional", "Perkhidmatan Bimbingan dan Kaunseling"] },
+            { id: 21, bidang: "Pentaksiran", sub: ["Pentaksiran Bilik Darjah", "Pentaksiran Psikometrik", "Pentaksiran Pusat", "Pentaksiran Aktiviti Jasmani (PAJSK)"] },
+            { id: 22, bidang: "Penyelidikan", sub: ["Pengurusan Penyelidikan", "Strategi Penyelidikan"] },
+            { id: 23, bidang: "Protokol dan Etiket Sosial", sub: ["Etiket Sosial dan Protokol Asas", "Etiket dalam Pengurusan Acara"] },
+            { id: 24, bidang: "Teknologi Digital", sub: ["Aplikasi AI", "Aplikasi Dalam Talian", "Aplikasi Multimedia dan Grafik", "Penggunaan Aplikasi Pendidikan"] }
+        ];
+
+        // --- PENGURUSAN STATE & PENYIMPANAN DATA KEKAL ---
+        let state = {
+            users: JSON.parse(localStorage.getItem('tna_users')) || [],
+            responses: JSON.parse(localStorage.getItem('tna_responses')) || {},
+            currentUser: null,
+            activeTab: 'dashboard',
+            isLoginMode: true,
+            authError: '',
+            tempFormData: {},
+            adminViewingIc: null // ID Responden yg sedang dilihat oleh Admin
+        };
+
+        function saveData() {
+            localStorage.setItem('tna_users', JSON.stringify(state.users));
+            localStorage.setItem('tna_responses', JSON.stringify(state.responses));
+        }
+
+        function getTahapKeperluan(skor) {
+            if (!skor || skor === 0 || isNaN(skor)) return { label: "Tiada", color: "text-gray-500", bg: "bg-gray-100" };
+            if (skor <= 2) return { label: "Rendah Keperluan", color: "text-green-700", bg: "bg-green-100" };
+            if (skor <= 3) return { label: "Sederhana Keperluan", color: "text-yellow-700", bg: "bg-yellow-100" };
+            return { label: "Tinggi Keperluan", color: "text-red-700", bg: "bg-red-100" };
+        }
+
+        // --- FUNGSI GLOBAL ---
+        window.switchAuthMode = function() {
+            state.isLoginMode = !state.isLoginMode;
+            state.authError = '';
+            render();
+        };
+
+        window.handleAuth = function(event) {
+            event.preventDefault();
+            const ic = document.getElementById('auth-ic').value.replace(/\D/g, '');
+            state.authError = '';
+
+            if (state.isLoginMode) {
+                const user = state.users.find(u => u.ic === ic);
+                if (user) {
+                    state.currentUser = user;
+                    state.activeTab = 'dashboard';
+                    state.adminViewingIc = null;
+                } else {
+                    state.authError = "No Kad Pengenalan tidak dijumpai. Sila daftar baharu.";
+                }
+            } else {
+                const name = document.getElementById('auth-name').value.toUpperCase();
+                const jawatan = document.getElementById('auth-jawatan').value;
+
+                if (!ic || !name) {
+                    state.authError = "Sila isi semua maklumat.";
+                    render();
+                    return;
+                }
+                if (state.users.find(u => u.ic === ic)) {
+                    state.authError = "No Kad Pengenalan ini telah didaftarkan.";
+                    render();
+                    return;
+                }
+
+                const newUser = { ic, name, jawatan };
+                state.users.push(newUser);
+                saveData();
+                state.currentUser = newUser;
+                state.activeTab = 'dashboard';
+                state.adminViewingIc = null;
+            }
+            render();
+        };
+
+        window.logout = function() {
+            state.currentUser = null;
+            state.tempFormData = {};
+            state.adminViewingIc = null;
+            render();
+        };
+
+        window.switchTab = function(tab) {
+            state.activeTab = tab;
+            state.adminViewingIc = null; // Reset paparan admin jika tukar tab
+            if (tab === 'borang') {
+                state.tempFormData = { ...(state.responses[state.currentUser.ic] || {}) };
+            }
+            render();
+        };
+
+        window.viewUser = function(ic) {
+            state.adminViewingIc = ic;
+            render();
+        };
+
+        window.backToAdminList = function() {
+            state.adminViewingIc = null;
+            render();
+        };
+
+        window.deleteUser = function(ic) {
+            if (confirm("Adakah anda pasti mahu memadam responden ini? Semua data borang yang berkaitan juga akan dipadam secara kekal.")) {
+                state.users = state.users.filter(u => u.ic !== ic);
+                delete state.responses[ic];
+                saveData();
+                render();
+            }
+        };
+
+        window.handleRadioChange = function(key, value) {
+            state.tempFormData[key] = parseInt(value);
+            render(); 
+        };
+
+        window.submitBorang = function(event) {
+            event.preventDefault();
+            state.responses[state.currentUser.ic] = { ...state.tempFormData };
+            saveData();
+            state.activeTab = 'dashboard';
+            render();
+        };
+
+        window.bukaDanEdit = function() {
+            const printArea = document.getElementById('printArea');
+            if(!printArea) return;
+            const kandungan = printArea.innerHTML;
+            
+            const win = window.open('', '', 'height=800,width=1000');
+            
+            win.document.write('<html><head><title>Edit Sebelum Cetak</title>');
+            win.document.write('<script src="https://cdn.tailwindcss.com"><\/script>');
+            win.document.write('<style>');
+            win.document.write('body{font-family:Arial; padding:20px;} .edit-box{border:1px dashed #ccc; padding:20px;}');
+            win.document.write('@media print { .no-print { display: none !important; } .edit-box { border: none !important; padding: 0 !important; } }');
+            win.document.write('</style>');
+            win.document.write('</head><body>');
+            
+            win.document.write('<div class="no-print" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">');
+            win.document.write('<div><h3 style="margin:0; color:#1e293b; font-weight:bold;">Sila edit teks di bawah jika perlu:</h3><p style="margin:5px 0 0 0; font-size:14px; color:#64748b;">Anda boleh menaip terus ke dalam dokumen ini sebelum mencetak.</p></div>');
+            win.document.write('<button onclick="window.print()" style="padding:10px 20px; background:#1d4ed8; color:white; font-weight:bold; border:none; border-radius:6px; cursor:pointer;">🖨️ Cetak Sekarang</button>');
+            win.document.write('</div>');
+            
+            win.document.write('<div id="editor" contenteditable="true" class="edit-box">' + kandungan + '</div>');
+            
+            win.document.write('</body></html>');
+            win.document.close();
+        };
+
+        // --- RENDER LOGIC ---
+        function render() {
+            const app = document.getElementById('app');
+            if (!state.currentUser) {
+                app.innerHTML = renderAuthScreen();
+            } else {
+                app.innerHTML = renderMainApp();
+            }
+            lucide.createIcons();
+        }
+
+        function renderAuthScreen() {
+            const errorHtml = state.authError ? `
+                <div class="bg-red-50 text-red-600 p-3 rounded-lg flex items-center space-x-2 text-sm">
+                    <i data-lucide="alert-circle" class="h-4 w-4"></i>
+                    <span>${state.authError}</span>
+                </div>
+            ` : '';
+
+            const registerFields = !state.isLoginMode ? `
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nama Penuh</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="user" class="h-5 w-5 text-gray-400"></i>
+                        </div>
+                        <input id="auth-name" type="text" placeholder="Nama seperti dalam Kad Pengenalan" class="pl-10 w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" required />
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Jawatan</label>
+                    <select id="auth-jawatan" class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                        <option value="Guru">Guru (PPP)</option>
+                        <option value="AKP">AKP (Anggota Kumpulan Pelaksana)</option>
+                        <option value="Admin">Admin</option>
+                    </select>
+                </div>
+            ` : '';
+
+            const btnText = state.isLoginMode ? 'Log Masuk' : 'Daftar Akaun';
+            const btnIcon = state.isLoginMode ? 'log-in' : 'user-plus';
+            const toggleText = state.isLoginMode ? "Pengguna baharu?" : "Sudah mempunyai akaun?";
+            const toggleLink = state.isLoginMode ? "Daftar di sini" : "Log Masuk";
+
+            return `
+            <div class="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+                <div class="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
+                    <div class="bg-blue-800 p-6 text-center">
+                        <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                            <i data-lucide="bar-chart-3" class="h-8 w-8 text-blue-800"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white">Sistem CerDIK TNA</h2>
+                        <p class="text-blue-200 mt-1">Training Needs Analysis KPM</p>
+                    </div>
+                    
+                    <form onsubmit="handleAuth(event)" class="p-8 space-y-5">
+                        ${errorHtml}
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">No. Kad Pengenalan</label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <i data-lucide="lock" class="h-5 w-5 text-gray-400"></i>
+                                </div>
+                                <input id="auth-ic" type="text" maxlength="12" placeholder="Contoh: 800101011234" class="pl-10 w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" required />
+                            </div>
+                        </div>
+                        ${registerFields}
+                        <button type="submit" class="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 rounded-lg transition-colors flex justify-center items-center space-x-2">
+                            <i data-lucide="${btnIcon}" class="h-5 w-5"></i>
+                            <span>${btnText}</span>
+                        </button>
+                    </form>
+
+                    <div class="bg-slate-50 p-4 text-center border-t border-slate-200">
+                        <p class="text-sm text-gray-600">
+                            ${toggleText} 
+                            <button type="button" onclick="switchAuthMode()" class="text-blue-700 font-semibold hover:underline">
+                                ${toggleLink}
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        function renderMainApp() {
+            let contentHtml = '';
+            if (state.activeTab === 'dashboard') contentHtml = renderDashboard();
+            else if (state.activeTab === 'borang') contentHtml = renderBorang();
+            else if (state.activeTab === 'analisis') contentHtml = renderAnalisis();
+
+            const getTabClass = (tab) => state.activeTab === tab 
+                ? 'bg-blue-100 text-blue-800 shadow-sm' 
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900';
+
+            const dashboardLabel = state.currentUser.jawatan === 'Admin' ? 'Dashboard Data' : 'Dashboard Individu';
+
+            return `
+            <div class="min-h-screen bg-slate-50 font-sans">
+                <!-- Header -->
+                <header class="bg-blue-800 text-white shadow-md">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div class="flex justify-between h-16 items-center">
+                            <div class="flex items-center space-x-3">
+                                <div class="bg-white p-1 rounded">
+                                    <i data-lucide="bar-chart-3" class="h-6 w-6 text-blue-800"></i>
+                                </div>
+                                <h1 class="text-xl font-bold tracking-tight">Sistem TNA KPM</h1>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-sm text-blue-100 hidden sm:block">
+                                    Selamat datang, <span class="font-semibold text-white">${state.currentUser.name}</span> <span class="bg-blue-900 px-2 py-1 rounded-md text-xs font-bold ml-1">${state.currentUser.jawatan}</span>
+                                </div>
+                                <button onclick="logout()" class="flex items-center space-x-1 hover:text-blue-200 transition-colors">
+                                    <i data-lucide="log-out" class="h-5 w-5"></i>
+                                    <span class="hidden sm:inline">Log Keluar</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Navigasi Tab -->
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                        <div class="flex space-x-1 bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit">
+                            <button onclick="switchTab('dashboard')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('dashboard')}">
+                                <i data-lucide="layout-dashboard" class="h-4 w-4"></i><span>${dashboardLabel}</span>
+                            </button>
+                            <button onclick="switchTab('borang')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('borang')}">
+                                <i data-lucide="file-text" class="h-4 w-4"></i><span>Borang TNA</span>
+                            </button>
+                            <button onclick="switchTab('analisis')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('analisis')}">
+                                <i data-lucide="bar-chart-3" class="h-4 w-4"></i><span>Analisis Keseluruhan</span>
+                            </button>
+                        </div>
+
+                        <button onclick="bukaDanEdit()" class="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm">
+                            <i data-lucide="printer" class="h-4 w-4"></i><span>Edit & Cetak</span>
+                        </button>
+                    </div>
+
+                    <!-- Kandungan Tab -->
+                    <main class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[60vh]">
+                        <div id="printArea">
+                            ${contentHtml}
+                        </div>
+                    </main>
+                </div>
+            </div>
+            `;
+        }
+
+        function renderAdminDashboardList() {
+            const nonAdmins = state.users.filter(u => u.jawatan !== 'Admin');
+            
+            if (nonAdmins.length === 0) {
+                return `
+                <div class="text-center py-16">
+                    <div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="users" class="h-10 w-10 text-blue-500"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Tiada Responden Berdaftar</h3>
+                    <p class="text-gray-500 mb-6 max-w-md mx-auto">Sistem belum merekodkan sebarang pendaftaran dari Guru atau AKP.</p>
+                </div>`;
+            }
+
+            let trs = '';
+            nonAdmins.forEach((user, index) => {
+                const userResponses = state.responses[user.ic];
+                let purata = 0;
+                let statusBadge = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-500">Belum Menjawab</span>`;
+                let keperluanLabel = `<span class="text-gray-400 text-sm">-</span>`;
+                
+                if (userResponses && Object.keys(userResponses).length > 0) {
+                    const allScores = Object.values(userResponses);
+                    purata = (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2);
+                    const keperluan = getTahapKeperluan(parseFloat(purata));
+                    statusBadge = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-green-100 text-green-700">Telah Menjawab</span>`;
+                    keperluanLabel = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${keperluan.bg} ${keperluan.color}">${keperluan.label}</span>`;
+                }
+
+                trs += `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4 text-sm text-slate-500 text-center">${index + 1}</td>
+                    <td class="px-6 py-4 text-sm font-bold text-slate-800">${user.name}</td>
+                    <td class="px-6 py-4 text-sm text-slate-600">${user.ic}</td>
+                    <td class="px-6 py-4 text-sm text-slate-600">${user.jawatan}</td>
+                    <td class="px-6 py-4 text-center">${statusBadge}</td>
+                    <td class="px-6 py-4 text-sm text-center font-bold text-slate-800">${purata > 0 ? purata : '-'}</td>
+                    <td class="px-6 py-4 text-center">${keperluanLabel}</td>
+                    <td class="px-6 py-4 text-center no-print">
+                        <div class="flex items-center justify-center space-x-3">
+                            <button onclick="viewUser('${user.ic}')" class="text-blue-600 hover:text-blue-800 hover:underline text-sm font-semibold flex items-center justify-center space-x-1">
+                                <span>Lihat Skor</span>
+                            </button>
+                            <span class="text-gray-300">|</span>
+                            <button onclick="deleteUser('${user.ic}')" class="text-red-500 hover:text-red-700 hover:underline text-sm font-semibold flex items-center justify-center space-x-1">
+                                <span>Hapus</span>
+                            </button>
+                        </div>
+                    </td>
+                </tr>`;
+            });
+
+            return `
+            <div>
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Pangkalan Data Responden</h2>
+                    <p class="text-gray-600">Senarai keseluruhan jawapan borang TNA (Hanya paparan Guru & AKP).</p>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Bil</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Nama Lengkap</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">No. IC</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Jawatan</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Status Borang</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Purata Skor</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Keputusan</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider no-print">Tindakan</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-200">
+                            ${trs}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        }
+
+        function renderDashboard() {
+            // Jika Admin dan tak tengok IC spesifik, tunjuk Senarai Penuh Admin
+            if (state.currentUser.jawatan === 'Admin' && !state.adminViewingIc) {
+                return renderAdminDashboardList();
+            }
+
+            // Tentukan target yang sedang dilihat (Sama ada user sendiri atau admin tgh view user lain)
+            const targetIc = (state.currentUser.jawatan === 'Admin' && state.adminViewingIc) 
+                ? state.adminViewingIc 
+                : state.currentUser.ic;
+            
+            const targetUser = state.users.find(u => u.ic === targetIc);
+            const userResponses = state.responses[targetIc];
+            
+            if (!userResponses || Object.keys(userResponses).length === 0) {
+                const isViewByAdmin = state.currentUser.jawatan === 'Admin';
+                return `
+                <div class="text-center py-16">
+                    <div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="file-text" class="h-10 w-10 text-blue-500"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Tiada Rekod Ditemui</h3>
+                    <p class="text-gray-500 mb-6 max-w-md mx-auto">
+                        ${isViewByAdmin ? `Responden ini (${targetUser ? targetUser.name : targetIc}) belum melengkapkan borang.` : 'Anda belum melengkapkan borang Analisis Keperluan Latihan (TNA) untuk tahun ini.'}
+                    </p>
+                    ${isViewByAdmin 
+                        ? `<button onclick="backToAdminList()" class="bg-slate-600 hover:bg-slate-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors shadow-sm">Kembali ke Senarai</button>`
+                        : `<button onclick="switchTab('borang')" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors shadow-sm">Isi Borang Sekarang</button>`
+                    }
+                </div>`;
+            }
+
+            const allScores = Object.values(userResponses);
+            const purata = (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2);
+            const keperluanKeseluruhan = getTahapKeperluan(parseFloat(purata));
+
+            let trs = '';
+            BIDANG_DATA.forEach(bidang => {
+                bidang.sub.forEach((sub, sIdx) => {
+                    const key = `${bidang.bidang}|${sub}`;
+                    const skor = userResponses[key] || 0;
+                    const status = getTahapKeperluan(skor);
+                    
+                    let statusHtml = skor ? `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${status.bg} ${status.color}">${status.label}</span>` : `<span class="text-gray-400 text-sm">-</span>`;
+
+                    let tdBidang = sIdx === 0 
+                        ? `<td rowspan="${bidang.sub.length}" class="px-6 py-4 text-sm font-medium text-slate-900 border-r border-slate-100 align-top">${bidang.id}. ${bidang.bidang}</td>` 
+                        : '';
+
+                    trs += `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        ${tdBidang}
+                        <td class="px-6 py-4 text-sm text-slate-600">${sub}</td>
+                        <td class="px-6 py-4 text-sm text-center font-bold text-slate-800">${skor || '-'}</td>
+                        <td class="px-6 py-4 text-center">${statusHtml}</td>
+                    </tr>`;
+                });
+            });
+
+            return `
+            <div>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Keputusan TNA Individu</h2>
+                        <p class="text-gray-500">Rekod maklum balas latihan bagi tahun semasa. Nama: <strong>${targetUser.name}</strong></p>
+                    </div>
+                    
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center space-x-6 min-w-fit">
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Purata Skor</p>
+                            <p class="text-3xl font-black text-gray-800">${purata}</p>
+                        </div>
+                        <div class="w-px h-12 bg-slate-300"></div>
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Keputusan</p>
+                            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${keperluanKeseluruhan.bg} ${keperluanKeseluruhan.color}">
+                                ${keperluanKeseluruhan.label}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider w-1/3">Bidang Latihan</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider w-1/3">Sub Bidang Latihan</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Skor (1-5)</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold text-slate-700 uppercase tracking-wider">Keperluan</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-200">
+                            ${trs}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="mt-6 flex justify-end no-print">
+                    ${state.currentUser.jawatan === 'Admin'
+                        ? `<button onclick="backToAdminList()" class="flex items-center space-x-2 text-slate-600 font-medium hover:text-slate-800 hover:underline"><i data-lucide="arrow-left" class="h-4 w-4"></i><span>Kembali ke Senarai</span></button>`
+                        : `<button onclick="switchTab('borang')" class="text-blue-600 font-medium hover:text-blue-800 hover:underline">Kemaskini Jawapan Saya</button>`
+                    }
+                </div>
+            </div>`;
+        }
+
+        function renderBorang() {
+            if (state.currentUser.jawatan === 'Admin') {
+                return `
+                <div class="text-center py-16">
+                    <div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="shield-alert" class="h-10 w-10 text-blue-500"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Akses Terhad (Admin)</h3>
+                    <p class="text-gray-500 mb-6 max-w-md mx-auto">Jawatan Admin tidak perlu mengisi Borang TNA dan markah tidak akan dikira ke dalam jumlah purata keseluruhan. Sila rujuk Tab Analisis untuk melihat laporan responden.</p>
+                </div>`;
+            }
+
+            const totalQuestions = BIDANG_DATA.reduce((acc, curr) => acc + curr.sub.length, 0);
+            const answeredQuestions = Object.keys(state.tempFormData).length;
+            const progress = Math.round((answeredQuestions / totalQuestions) * 100);
+
+            let formBlocks = '';
+            BIDANG_DATA.forEach(bidang => {
+                let subHtml = '';
+                bidang.sub.forEach(sub => {
+                    const key = `${bidang.bidang}|${sub}`;
+                    const currentValue = state.tempFormData[key];
+                    
+                    let radios = '';
+                    [1, 2, 3, 4, 5].forEach(score => {
+                        const isChecked = currentValue === score;
+                        const labelClass = isChecked ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200';
+                        radios += `
+                        <label class="flex flex-col items-center justify-center w-12 h-10 rounded cursor-pointer transition-colors ${labelClass}">
+                            <input type="radio" name="${key}" value="${score}" ${isChecked ? 'checked' : ''} onchange="handleRadioChange('${key}', this.value)" class="sr-only" required />
+                            <span class="font-bold text-sm">${score}</span>
+                        </label>`;
+                    });
+
+                    subHtml += `
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-100 last:border-0 last:pb-0">
+                        <p class="text-slate-700 font-medium flex-1">${sub}</p>
+                        <div class="flex items-center space-x-2 bg-slate-50 p-2 rounded-lg border border-slate-200 self-start lg:self-auto">
+                            ${radios}
+                        </div>
+                    </div>`;
+                });
+
+                formBlocks += `
+                <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <div class="bg-blue-50 px-6 py-4 border-b border-blue-100">
+                        <h3 class="font-bold text-blue-900 text-lg">${bidang.id}. ${bidang.bidang}</h3>
+                    </div>
+                    <div class="p-6 space-y-6">${subHtml}</div>
+                </div>`;
+            });
+
+            return `
+            <div>
+                <div class="mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Borang Kaji Selidik TNA</h2>
+                    <p class="text-gray-600">Sila nilaikan tahap keperluan latihan anda berdasarkan skala 1 (Sangat Tidak Perlu) hingga 5 (Sangat Perlu).</p>
+                </div>
+
+                <div class="mb-8 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10 no-print">
+                    <div class="flex justify-between text-sm font-medium text-gray-600 mb-2">
+                        <span>Perkembangan Pengisian</span>
+                        <span class="${progress === 100 ? 'text-green-600 font-bold' : ''}">${progress}% Lengkap</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="h-2.5 rounded-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-blue-600'}" style="width: ${progress}%"></div>
+                    </div>
+                </div>
+
+                <form onsubmit="submitBorang(event)" class="space-y-8">
+                    ${formBlocks}
+                    <div class="flex justify-end pt-6 pb-12 no-print">
+                        <button type="submit" class="flex items-center space-x-2 bg-blue-700 hover:bg-blue-800 text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all">
+                            <i data-lucide="check-circle-2" class="h-6 w-6"></i>
+                            <span>Simpan & Hantar Jawapan</span>
+                        </button>
+                    </div>
+                </form>
+            </div>`;
+        }
+
+        function renderAnalisis() {
+            const stats = [];
+            const validUsers = state.users.filter(u => u.jawatan !== 'Admin');
+            const validIcs = validUsers.map(u => u.ic);
+            
+            // Dapatkan jawapan hanya daripada IC yang bukan Admin
+            const validResponsesArray = Object.keys(state.responses)
+                .filter(ic => validIcs.includes(ic))
+                .map(ic => state.responses[ic]);
+                
+            const totalRespondents = validResponsesArray.length;
+
+            BIDANG_DATA.forEach(b => {
+                b.sub.forEach(s => {
+                    const key = `${b.bidang}|${s}`;
+                    let totalScore = 0;
+                    let countTinggiKeperluan = 0;
+
+                    validResponsesArray.forEach(userRes => {
+                        const score = userRes[key];
+                        if (score) {
+                            totalScore += score;
+                            if (score >= 4) {
+                                countTinggiKeperluan++;
+                            }
+                        }
+                    });
+
+                    const percentage = totalRespondents > 0 ? ((countTinggiKeperluan / totalRespondents) * 100).toFixed(1) : (0).toFixed(1);
+                    const average = totalRespondents > 0 ? (totalScore / totalRespondents).toFixed(2) : (0).toFixed(2);
+
+                    stats.push({
+                        bidang: b.bidang,
+                        sub: s,
+                        percentage: parseFloat(percentage),
+                        average: parseFloat(average)
+                    });
+                });
+            });
+
+            stats.sort((a, b) => b.percentage - a.percentage || b.average - a.average);
+
+            const currentRespondentsCount = state.users.filter(u => u.jawatan !== 'Admin' && state.responses[u.ic]).length;
+
+            if (stats.length === 0 || currentRespondentsCount === 0) {
+                return `<div class="text-center py-12 text-gray-500">Tiada data untuk dianalisis lagi. Rekod responden dan purata skala 1 hingga 5 akan bermula apabila terdapat pendaftaran baharu yang telah menjawab (selain Admin).</div>`;
+            }
+
+            let trs = '';
+            stats.forEach((item, index) => {
+                let badgeClass = 'bg-slate-100 text-slate-600';
+                if (index === 0) badgeClass = 'bg-yellow-400 text-yellow-900 shadow-md';
+                else if (index === 1) badgeClass = 'bg-slate-300 text-slate-800 shadow-sm';
+                else if (index === 2) badgeClass = 'bg-orange-300 text-orange-900 shadow-sm';
+
+                let pctColor = 'text-slate-600';
+                let barColor = 'bg-blue-400';
+                if (item.percentage >= 70) { pctColor = 'text-red-600'; barColor = 'bg-red-500'; }
+                else if (item.percentage >= 40) { pctColor = 'text-orange-500'; barColor = 'bg-orange-400'; }
+
+                trs += `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-6 py-4 text-center">
+                        <span class="inline-flex items-center justify-center h-8 w-8 rounded-full font-bold text-sm ${badgeClass}">
+                            ${index + 1}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-sm font-bold text-slate-800">${item.sub}</td>
+                    <td class="px-6 py-4 text-sm text-slate-500">${item.bidang}</td>
+                    <td class="px-6 py-4 text-sm text-center font-semibold text-slate-700">${item.average.toFixed(2)}</td>
+                    <td class="px-6 py-4 text-center">
+                        <div class="flex items-center justify-center space-x-2">
+                            <span class="text-sm font-bold ${pctColor}">${item.percentage}%</span>
+                            <div class="w-16 h-2 bg-slate-200 rounded-full overflow-hidden hidden sm:block">
+                                <div class="h-full ${barColor}" style="width: ${item.percentage}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>`;
+            });
+
+            return `
+            <div>
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Analisis Keperluan Latihan Keseluruhan</h2>
+                    <p class="text-gray-600">Ranking kursus berdasarkan peratusan responden yang meletakkan skor Tinggi (Skor 4 & 5). Pendaftaran sebagai Admin tidak dikira.</p>
+                    
+                    <div class="mt-4 inline-block bg-blue-50 text-blue-800 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-100">
+                        Jumlah Responden Semasa: ${currentRespondentsCount} Orang
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider w-16">Rank</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Sub Bidang Latihan (Kursus)</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Kategori Bidang Utama</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Purata Skor</th>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">% Diperlukan (Skor ≥ 4)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-200">
+                            ${trs}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        }
+
+        // Initialize App
+        render();
+
+    </script>
+</body>
+</html>
