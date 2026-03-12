@@ -67,6 +67,52 @@
             localStorage.setItem('tna_responses', JSON.stringify(state.responses));
         }
 
+        // --- GOOGLE SHEETS INTEGRATION ---
+        const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwTWXSzwy0cyDBDGtXbh--ptRY6rvwU8lhBjd6ku1eOQwGYXANYZLG5ULy05yMdDHnBAw/exec";
+
+        window.syncToGoogleSheets = function(action, user, responseData = {}) {
+            if (!user) return;
+            
+            const formData = new URLSearchParams();
+            formData.append("action", action);
+            formData.append("ic", user.ic);
+            formData.append("name", user.name);
+            formData.append("jawatan", user.jawatan);
+            formData.append("responses", JSON.stringify(responseData)); // Hantar data jawapan borang sepenuhnya
+            
+            // Guna mode 'no-cors' untuk menghantar data secara senyap tanpa disekat oleh pelayar
+            fetch(GOOGLE_SHEET_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: formData.toString()
+            }).then(() => {
+                console.log("Maklumat dipaut ke Google Sheets:", action);
+            }).catch(error => {
+                console.error("Ralat pautan ke Google Sheets:", error);
+            });
+        };
+
+        // Fungsi Memuat turun/Panggil Data dari Google Sheets setiap kali sistem dibuka/refresh
+        window.loadDataFromGoogleSheets = function() {
+            fetch(GOOGLE_SHEET_URL + "?action=get_data", { redirect: 'follow' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.users) {
+                        state.users = data.users;
+                        state.responses = data.responses || {};
+                        saveData(); // Kemaskini cache local storage
+                        render();   // Muatkan semula UI dengan data terkini
+                        console.log("Data berjaya dipanggil dari Google Sheets.");
+                    }
+                })
+                .catch(err => {
+                    console.warn("Gagal mengambil data dari Google Sheets. Menggunakan rekod setempat (localStorage).", err);
+                });
+        };
+
         function getTahapKeperluan(skor) {
             if (!skor || skor === 0 || isNaN(skor)) return { label: "Tiada", color: "text-gray-500", bg: "bg-gray-100" };
             if (skor <= 2) return { label: "Rendah Keperluan", color: "text-green-700", bg: "bg-green-100" };
@@ -114,6 +160,9 @@
                 state.users.push(newUser);
                 saveData();
                 
+                // Hantar pendaftaran baru ke Google Sheets
+                syncToGoogleSheets('DAFTAR_PENGGUNA', newUser);
+
                 // Paparan kembali ke log masuk automatik dgn notis
                 state.isLoginMode = true;
                 state.authError = "Pendaftaran berjaya! Sila log masuk dengan Kad Pengenalan anda.";
@@ -182,7 +231,10 @@
                 title: 'Pengesahan Hapus Responden',
                 message: `Adakah anda pasti mahu menghapuskan <strong>${nama}</strong> dan semua maklumat berkaitan?`,
                 onConfirm: function() {
-                    // Hapus data dari pangkalan data
+                    // Beritahu Google Sheets untuk padam/rekod penghapusan user
+                    syncToGoogleSheets('HAPUS_PENGGUNA', user);
+
+                    // Hapus data dari pangkalan data tempatan
                     state.users = state.users.filter(u => u.ic !== ic);
                     delete state.responses[ic];
                     saveData();
@@ -211,6 +263,10 @@
                         if(newName && newName.trim() !== "") {
                             user.name = newName.trim().toUpperCase();
                             saveData();
+
+                            // Beritahu Google Sheets kemaskini telah berlaku
+                            syncToGoogleSheets('KEMASKINI_PENGGUNA', user, state.responses[user.ic] || {});
+
                             window.closeModal();
                         }
                     }
@@ -231,6 +287,10 @@
             event.preventDefault();
             state.responses[state.currentUser.ic] = { ...state.tempFormData };
             saveData();
+
+            // Hantar data penuh borang ke Google Sheets
+            syncToGoogleSheets('HANTAR_BORANG', state.currentUser, state.responses[state.currentUser.ic]);
+
             state.activeTab = 'dashboard';
             render();
         };
@@ -971,9 +1031,11 @@
             </div>`;
         }
 
-        // Initialize App
+        // Initialize App & Panggil data dari Google Sheets secara background
+        loadDataFromGoogleSheets();
         render();
 
     </script>
 </body>
 </html>
+
