@@ -63,14 +63,14 @@
             isDataLoaded: false 
         };
 
-        // --- URL GOOGLE SHEETS & CSV ---
+        // --- URL GOOGLE SHEETS & LIVE DATA ---
         const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbz8LIzGEAwAwTm90pzcsePVeetpiY4zn2RgD9hWSmSmclcOlk5Ra35bwpdk6S8pGruiTg/exec";
-        const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRMlJIwKkNqCVRX0trFeSR0H1NiiQafIPxX9aqdE-HB-hE0D0SyzKISEGM_xthwot1PWDF1tV5o9FlC/pub?output=csv";
+        const SHEET_ID = "1hEIZftHI-49l47mAa29MitG-QWwhUgNd-pOIPPdIf7M";
+        const LIVE_GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Data_TNA`;
 
-        // Dikosongkan bagi mematuhi arahan tidak menyimpan data di local storage
-        function saveData() {}
+        function saveData() {} // Dikosongkan (Data tidak disimpan di Local Storage)
 
-        // Fungsi penghantaran rekod pengguna/jawapan (Tulis data)
+        // Fungsi menghantar rekod ke Apps Script (POST)
         window.syncToGoogleSheets = function(action, user, responseData = {}) {
             if (!user) return;
             
@@ -84,108 +84,89 @@
             fetch(GOOGLE_SHEET_URL, {
                 method: 'POST',
                 mode: 'no-cors',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: formData.toString()
             }).then(() => {
-                console.log("Maklumat dihantar ke Google Sheets:", action);
+                console.log("Rekod dipaut ke awan:", action);
             }).catch(error => {
-                console.warn("Gagal menghantar rekod ke Google Sheets secara latar:", error);
+                console.warn("Gagal menghubungi pelayan (Post):", error);
             });
         };
 
-        // Logik Pengekstrakan (Parser) CSV
-        function parseCSV(str) {
-            const arr = [];
-            let quote = false;
-            let row = 0, col = 0;
-            for (let c = 0; c < str.length; c++) {
-                let cc = str[c], nc = str[c+1];
-                arr[row] = arr[row] || [];
-                arr[row][col] = arr[row][col] || '';
-                if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
-                if (cc === '"') { quote = !quote; continue; }
-                if (cc === ',' && !quote) { ++col; continue; }
-                if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
-                if (cc === '\n' && !quote) { ++row; col = 0; continue; }
-                if (cc === '\r' && !quote) { ++row; col = 0; continue; }
-                arr[row][col] += cc;
-            }
-            return arr;
-        }
-
-        // Fungsi memuat turun dan menyusun data dari fail CSV Awam (Baca data pantas)
+        // Fungsi membaca data Masa Nyata (Live) melepasi had CORS cache
         window.loadDataFromGoogleSheets = async function() {
-            const url = CSV_URL + "&nocache=" + new Date().getTime(); // Elak cache lama
+            const url = LIVE_GVIZ_URL + "&nocache=" + new Date().getTime();
             
             try {
                 const response = await fetch(url);
-                if (!response.ok) throw new Error("Rangkaian bermasalah: " + response.status);
+                const text = await response.text();
                 
-                const csvText = await response.text();
-                const data = parseCSV(csvText);
+                // Cari blok JSON di dalam balasan (wrapper)
+                const start = text.indexOf('{');
+                const end = text.lastIndexOf('}');
                 
-                if (data && data.length > 1) { // Perlu lebih dari baris header
-                    const headers = data[0];
-                    const usersDict = {};
-                    const responsesDict = {};
+                if (start > -1 && end > -1) {
+                    const jsonString = text.substring(start, end + 1);
+                    const data = JSON.parse(jsonString);
                     
-                    // Kenal pasti indeks lajur penting
-                    const idxTindakan = headers.indexOf('Tindakan') > -1 ? headers.indexOf('Tindakan') : 1;
-                    const idxIc = headers.indexOf('No. IC') > -1 ? headers.indexOf('No. IC') : 2;
-                    const idxNama = headers.indexOf('Nama') > -1 ? headers.indexOf('Nama') : 3;
-                    const idxJawatan = headers.indexOf('Jawatan') > -1 ? headers.indexOf('Jawatan') : 4;
+                    if (data && data.table && data.table.rows) {
+                        const cols = data.table.cols.map(c => c ? c.label : '');
+                        const rows = data.table.rows;
 
-                    // Susun sejarah pergerakan pangkalan data
-                    for (let i = 1; i < data.length; i++) {
-                        const row = data[i];
-                        if (!row || row.length < 4) continue;
-                        
-                        const action = row[idxTindakan];
-                        let ic = row[idxIc];
-                        if (ic) ic = ic.toString().replace(/'/g, "").trim(); 
-                        const name = row[idxNama];
-                        const jawatan = row[idxJawatan];
-                        
-                        if (!ic) continue;
+                        const idxTindakan = cols.indexOf('Tindakan') > -1 ? cols.indexOf('Tindakan') : 1;
+                        const idxIc = cols.indexOf('No. IC') > -1 ? cols.indexOf('No. IC') : 2;
+                        const idxNama = cols.indexOf('Nama') > -1 ? cols.indexOf('Nama') : 3;
+                        const idxJawatan = cols.indexOf('Jawatan') > -1 ? cols.indexOf('Jawatan') : 4;
 
-                        if (action === 'DAFTAR_PENGGUNA' || action === 'HANTAR_BORANG' || action === 'KEMASKINI_PENGGUNA') {
-                            usersDict[ic] = { ic: ic, name: name, jawatan: jawatan };
-                            
-                            if (action === 'HANTAR_BORANG' || action === 'KEMASKINI_PENGGUNA') {
-                                if(!responsesDict[ic]) responsesDict[ic] = {};
-                                // Baca markah TNA dari indeks 5 ke atas
-                                for(let c = 5; c < headers.length; c++) {
-                                    if(row[c] !== "" && row[c] !== undefined && headers[c]) {
-                                        let val = row[c];
-                                        // Pastikan nombor kekal nombor (untuk pengiraan TNA) dan teks kekal teks
-                                        if (!isNaN(val) && val.trim() !== '') {
-                                            val = parseInt(val, 10);
+                        const usersDict = {};
+                        const responsesDict = {};
+
+                        rows.forEach(row => {
+                            if (!row || !row.c) return;
+
+                            const getVal = (idx) => {
+                                if (idx > -1 && row.c[idx]) {
+                                    return row.c[idx].v !== null ? row.c[idx].v : '';
+                                }
+                                return '';
+                            };
+
+                            const action = getVal(idxTindakan);
+                            let ic = getVal(idxIc);
+                            if (ic) ic = ic.toString().replace(/'/g, "").trim();
+                            const name = getVal(idxNama);
+                            const jawatan = getVal(idxJawatan);
+
+                            if (!ic) return;
+
+                            if (action === 'DAFTAR_PENGGUNA' || action === 'HANTAR_BORANG' || action === 'KEMASKINI_PENGGUNA') {
+                                usersDict[ic] = { ic, name, jawatan };
+                                
+                                if (action === 'HANTAR_BORANG' || action === 'KEMASKINI_PENGGUNA') {
+                                    if (!responsesDict[ic]) responsesDict[ic] = {};
+                                    for (let c = 5; c < cols.length; c++) {
+                                        const headerName = cols[c];
+                                        const cellVal = getVal(c);
+                                        if (headerName && cellVal !== null && cellVal !== '') {
+                                            responsesDict[ic][headerName] = cellVal;
                                         }
-                                        responsesDict[ic][headers[c]] = val;
                                     }
                                 }
+                            } else if (action === 'HAPUS_PENGGUNA') {
+                                delete usersDict[ic];
+                                delete responsesDict[ic];
                             }
-                        } else if (action === 'HAPUS_PENGGUNA') {
-                            delete usersDict[ic];
-                            delete responsesDict[ic];
-                        }
+                        });
+
+                        state.users = Object.values(usersDict);
+                        state.responses = responsesDict;
+                        state.authError = '';
+                        console.log("Pangkalan data langsung (Live) berjaya diserap:", state.users.length, "Responden");
                     }
-                    
-                    // Serapkan ke dalam State aplikasi
-                    state.users = Object.values(usersDict);
-                    state.responses = responsesDict;
-                    state.authError = '';
-                    console.log("Data CSV berjaya diserap:", state.users.length, "Responden");
-                } else {
-                    // Fail CSV dijumpai tetapi tiada data direkodkan
-                    state.users = [];
-                    state.responses = {};
                 }
             } catch (err) {
-                state.authError = "Amaran: Gagal membaca data CSV. Sila pastikan pautan diterbitkan dengan sah.";
-                console.warn("Ralat memanggil data CSV:", err.message);
+                state.authError = "Amaran: Pangkalan data Google Sheets dikunci. Sila pastikan tetapan Share ialah 'Anyone with the link'.";
+                console.warn("Ralat memanggil data Live:", err.message);
             } finally {
                 state.isDataLoaded = true;
                 render();
@@ -242,7 +223,7 @@
                 }
 
                 const newUser = { ic, name, jawatan };
-                state.users.push(newUser); // Simpan sementara di memori
+                state.users.push(newUser); // Simpan sementara di memori untuk log masuk segera
                 
                 // Hantar terus ke Pangkalan Data (Google Sheets)
                 syncToGoogleSheets('DAFTAR_PENGGUNA', newUser);
@@ -1115,12 +1096,13 @@
             </div>`;
         }
 
-        // Initialize App & Panggil data dari Google Sheets secara background
+        // Panggil data dari Google Sheets secara live background (Gviz API)
         loadDataFromGoogleSheets();
         render();
 
     </script>
 </body>
 </html>
+
 
 
