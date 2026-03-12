@@ -49,27 +49,28 @@
             { id: 24, bidang: "Teknologi Digital", sub: ["Aplikasi AI", "Aplikasi Dalam Talian", "Aplikasi Multimedia dan Grafik", "Penggunaan Aplikasi Pendidikan"] }
         ];
 
-        // --- PENGURUSAN STATE & PENYIMPANAN DATA KEKAL ---
+        // --- PENGURUSAN STATE (Tanpa Local Storage) ---
         let state = {
-            users: JSON.parse(localStorage.getItem('tna_users')) || [],
-            responses: JSON.parse(localStorage.getItem('tna_responses')) || {},
+            users: [],
+            responses: {},
             currentUser: null,
             activeTab: 'dashboard',
             isLoginMode: true,
             authError: '',
             tempFormData: {},
-            adminViewingIc: null, // ID Responden yg sedang dilihat oleh Admin
-            modalConfig: null // Konfigurasi pop-up (Alert/Confirm/Prompt) gantian kepada fungsi native
+            adminViewingIc: null, 
+            modalConfig: null, 
+            isDataLoaded: false 
         };
 
-        function saveData() {
-            localStorage.setItem('tna_users', JSON.stringify(state.users));
-            localStorage.setItem('tna_responses', JSON.stringify(state.responses));
-        }
+        // --- URL GOOGLE SHEETS & CSV ---
+        const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbz8LIzGEAwAwTm90pzcsePVeetpiY4zn2RgD9hWSmSmclcOlk5Ra35bwpdk6S8pGruiTg/exec";
+        const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRMlJIwKkNqCVRX0trFeSR0H1NiiQafIPxX9aqdE-HB-hE0D0SyzKISEGM_xthwot1PWDF1tV5o9FlC/pub?output=csv";
 
-        // --- GOOGLE SHEETS INTEGRATION ---
-        const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwTWXSzwy0cyDBDGtXbh--ptRY6rvwU8lhBjd6ku1eOQwGYXANYZLG5ULy05yMdDHnBAw/exec";
+        // Dikosongkan bagi mematuhi arahan tidak menyimpan data di local storage
+        function saveData() {}
 
+        // Fungsi penghantaran rekod pengguna/jawapan (Tulis data)
         window.syncToGoogleSheets = function(action, user, responseData = {}) {
             if (!user) return;
             
@@ -78,9 +79,8 @@
             formData.append("ic", user.ic);
             formData.append("name", user.name);
             formData.append("jawatan", user.jawatan);
-            formData.append("responses", JSON.stringify(responseData)); // Hantar data jawapan borang sepenuhnya
+            formData.append("responses", JSON.stringify(responseData));
             
-            // Guna mode 'no-cors' untuk menghantar data secara senyap tanpa disekat oleh pelayar
             fetch(GOOGLE_SHEET_URL, {
                 method: 'POST',
                 mode: 'no-cors',
@@ -89,28 +89,107 @@
                 },
                 body: formData.toString()
             }).then(() => {
-                console.log("Maklumat dipaut ke Google Sheets:", action);
+                console.log("Maklumat dihantar ke Google Sheets:", action);
             }).catch(error => {
-                console.error("Ralat pautan ke Google Sheets:", error);
+                console.warn("Gagal menghantar rekod ke Google Sheets secara latar:", error);
             });
         };
 
-        // Fungsi Memuat turun/Panggil Data dari Google Sheets setiap kali sistem dibuka/refresh
-        window.loadDataFromGoogleSheets = function() {
-            fetch(GOOGLE_SHEET_URL + "?action=get_data", { redirect: 'follow' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data && data.users) {
-                        state.users = data.users;
-                        state.responses = data.responses || {};
-                        saveData(); // Kemaskini cache local storage
-                        render();   // Muatkan semula UI dengan data terkini
-                        console.log("Data berjaya dipanggil dari Google Sheets.");
+        // Logik Pengekstrakan (Parser) CSV
+        function parseCSV(str) {
+            const arr = [];
+            let quote = false;
+            let row = 0, col = 0;
+            for (let c = 0; c < str.length; c++) {
+                let cc = str[c], nc = str[c+1];
+                arr[row] = arr[row] || [];
+                arr[row][col] = arr[row][col] || '';
+                if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
+                if (cc === '"') { quote = !quote; continue; }
+                if (cc === ',' && !quote) { ++col; continue; }
+                if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
+                if (cc === '\n' && !quote) { ++row; col = 0; continue; }
+                if (cc === '\r' && !quote) { ++row; col = 0; continue; }
+                arr[row][col] += cc;
+            }
+            return arr;
+        }
+
+        // Fungsi memuat turun dan menyusun data dari fail CSV Awam (Baca data pantas)
+        window.loadDataFromGoogleSheets = async function() {
+            const url = CSV_URL + "&nocache=" + new Date().getTime(); // Elak cache lama
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Rangkaian bermasalah: " + response.status);
+                
+                const csvText = await response.text();
+                const data = parseCSV(csvText);
+                
+                if (data && data.length > 1) { // Perlu lebih dari baris header
+                    const headers = data[0];
+                    const usersDict = {};
+                    const responsesDict = {};
+                    
+                    // Kenal pasti indeks lajur penting
+                    const idxTindakan = headers.indexOf('Tindakan') > -1 ? headers.indexOf('Tindakan') : 1;
+                    const idxIc = headers.indexOf('No. IC') > -1 ? headers.indexOf('No. IC') : 2;
+                    const idxNama = headers.indexOf('Nama') > -1 ? headers.indexOf('Nama') : 3;
+                    const idxJawatan = headers.indexOf('Jawatan') > -1 ? headers.indexOf('Jawatan') : 4;
+
+                    // Susun sejarah pergerakan pangkalan data
+                    for (let i = 1; i < data.length; i++) {
+                        const row = data[i];
+                        if (!row || row.length < 4) continue;
+                        
+                        const action = row[idxTindakan];
+                        let ic = row[idxIc];
+                        if (ic) ic = ic.toString().replace(/'/g, "").trim(); 
+                        const name = row[idxNama];
+                        const jawatan = row[idxJawatan];
+                        
+                        if (!ic) continue;
+
+                        if (action === 'DAFTAR_PENGGUNA' || action === 'HANTAR_BORANG' || action === 'KEMASKINI_PENGGUNA') {
+                            usersDict[ic] = { ic: ic, name: name, jawatan: jawatan };
+                            
+                            if (action === 'HANTAR_BORANG' || action === 'KEMASKINI_PENGGUNA') {
+                                if(!responsesDict[ic]) responsesDict[ic] = {};
+                                // Baca markah TNA dari indeks 5 ke atas
+                                for(let c = 5; c < headers.length; c++) {
+                                    if(row[c] !== "" && row[c] !== undefined && headers[c]) {
+                                        let val = row[c];
+                                        // Pastikan nombor kekal nombor (untuk pengiraan TNA) dan teks kekal teks
+                                        if (!isNaN(val) && val.trim() !== '') {
+                                            val = parseInt(val, 10);
+                                        }
+                                        responsesDict[ic][headers[c]] = val;
+                                    }
+                                }
+                            }
+                        } else if (action === 'HAPUS_PENGGUNA') {
+                            delete usersDict[ic];
+                            delete responsesDict[ic];
+                        }
                     }
-                })
-                .catch(err => {
-                    console.warn("Gagal mengambil data dari Google Sheets. Menggunakan rekod setempat (localStorage).", err);
-                });
+                    
+                    // Serapkan ke dalam State aplikasi
+                    state.users = Object.values(usersDict);
+                    state.responses = responsesDict;
+                    state.authError = '';
+                    console.log("Data CSV berjaya diserap:", state.users.length, "Responden");
+                } else {
+                    // Fail CSV dijumpai tetapi tiada data direkodkan
+                    state.users = [];
+                    state.responses = {};
+                }
+            } catch (err) {
+                state.authError = "Amaran: Gagal membaca data CSV. Sila pastikan pautan diterbitkan dengan sah.";
+                console.warn("Ralat memanggil data CSV:", err.message);
+            } finally {
+                state.isDataLoaded = true;
+                render();
+            }
         };
 
         function getTahapKeperluan(skor) {
@@ -132,6 +211,12 @@
             const ic = document.getElementById('auth-ic').value.replace(/\D/g, '');
             state.authError = '';
 
+            if (!state.isDataLoaded) {
+                state.authError = "Pangkalan data awan sedang dimuat turun. Sila tunggu seketika dan cuba lagi.";
+                render();
+                return;
+            }
+
             if (state.isLoginMode) {
                 const user = state.users.find(u => u.ic === ic);
                 if (user) {
@@ -151,19 +236,17 @@
                     return;
                 }
                 if (state.users.find(u => u.ic === ic)) {
-                    state.authError = "No Kad Pengenalan ini telah didaftarkan.";
+                    state.authError = "No Kad Pengenalan ini telah didaftarkan. Sila log masuk sahaja.";
                     render();
                     return;
                 }
 
                 const newUser = { ic, name, jawatan };
-                state.users.push(newUser);
-                saveData();
+                state.users.push(newUser); // Simpan sementara di memori
                 
-                // Hantar pendaftaran baru ke Google Sheets
+                // Hantar terus ke Pangkalan Data (Google Sheets)
                 syncToGoogleSheets('DAFTAR_PENGGUNA', newUser);
 
-                // Paparan kembali ke log masuk automatik dgn notis
                 state.isLoginMode = true;
                 state.authError = "Pendaftaran berjaya! Sila log masuk dengan Kad Pengenalan anda.";
             }
@@ -179,7 +262,7 @@
 
         window.switchTab = function(tab) {
             state.activeTab = tab;
-            state.adminViewingIc = null; // Reset paparan admin jika tukar tab
+            state.adminViewingIc = null; 
             if (tab === 'borang') {
                 state.tempFormData = { ...(state.responses[state.currentUser.ic] || {}) };
             }
@@ -188,17 +271,17 @@
 
         window.viewUser = function(ic) {
             state.adminViewingIc = ic;
-            state.activeTab = 'dashboard'; // Tunjuk borang individu di dashboard
+            state.activeTab = 'dashboard'; 
             render();
         };
 
         window.backToAdminList = function() {
             state.adminViewingIc = null;
-            state.activeTab = 'pengurusan'; // Kembali ke senarai pengurusan
+            state.activeTab = 'pengurusan'; 
             render();
         };
 
-        // --- SISTEM MODAL KHAS (Menggantikan window.confirm & window.prompt) ---
+        // --- SISTEM MODAL KHAS ---
         window.showModal = function(config) {
             state.modalConfig = config;
             render();
@@ -220,26 +303,22 @@
             }
         };
 
-        // Fungsi Hapus Menggunakan Modal Khas
         window.hapusPengguna = function(ic) {
             const user = state.users.find(u => u.ic === ic);
             const nama = user ? user.name : "Pengguna";
 
-            // Buka Modal Pengesahan (Ganti Confirm)
             window.showModal({
                 type: 'confirm',
                 title: 'Pengesahan Hapus Responden',
                 message: `Adakah anda pasti mahu menghapuskan <strong>${nama}</strong> dan semua maklumat berkaitan?`,
                 onConfirm: function() {
-                    // Beritahu Google Sheets untuk padam/rekod penghapusan user
+                    // Hantar isyarat hapus ke pangkalan data Google Sheet
                     syncToGoogleSheets('HAPUS_PENGGUNA', user);
 
-                    // Hapus data dari pangkalan data tempatan
+                    // Buang sementara dari sistem memori supaya UI dikemaskini terus
                     state.users = state.users.filter(u => u.ic !== ic);
                     delete state.responses[ic];
-                    saveData();
                     
-                    // Buka Modal Makluman (Ganti Alert)
                     window.showModal({
                         type: 'alert',
                         title: 'Berjaya Dihapuskan',
@@ -249,11 +328,9 @@
             });
         };
 
-        // Fungsi Edit Menggunakan Modal Khas
         window.editUser = function(ic) {
             const user = state.users.find(u => u.ic === ic);
             if(user) {
-                // Buka Modal Prompt (Ganti window.prompt)
                 window.showModal({
                     type: 'prompt',
                     title: 'Kemaskini Responden',
@@ -262,9 +339,8 @@
                     onConfirm: function(newName) {
                         if(newName && newName.trim() !== "") {
                             user.name = newName.trim().toUpperCase();
-                            saveData();
 
-                            // Beritahu Google Sheets kemaskini telah berlaku
+                            // Hantar kemaskini ke pangkalan data Google Sheet
                             syncToGoogleSheets('KEMASKINI_PENGGUNA', user, state.responses[user.ic] || {});
 
                             window.closeModal();
@@ -286,9 +362,8 @@
         window.submitBorang = function(event) {
             event.preventDefault();
             state.responses[state.currentUser.ic] = { ...state.tempFormData };
-            saveData();
 
-            // Hantar data penuh borang ke Google Sheets
+            // Hantar borang yang lengkap ke pangkalan data Google Sheet
             syncToGoogleSheets('HANTAR_BORANG', state.currentUser, state.responses[state.currentUser.ic]);
 
             state.activeTab = 'dashboard';
@@ -382,12 +457,21 @@
 
         function renderAuthScreen() {
             const isSuccess = state.authError && state.authError.includes('berjaya');
-            const alertClass = isSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600';
-            const alertIcon = isSuccess ? 'check-circle' : 'alert-circle';
+            const isWarning = state.authError && (state.authError.includes('Amaran') || state.authError.includes('Pangkalan data awan'));
+            let alertClass = 'bg-red-50 text-red-600';
+            let alertIcon = 'alert-circle';
+            
+            if (isSuccess) {
+                alertClass = 'bg-green-50 text-green-700';
+                alertIcon = 'check-circle';
+            } else if (isWarning) {
+                alertClass = 'bg-amber-50 text-amber-700';
+                alertIcon = 'alert-triangle';
+            }
             
             const errorHtml = state.authError ? `
                 <div class="${alertClass} p-3 rounded-lg flex items-center space-x-2 text-sm">
-                    <i data-lucide="${alertIcon}" class="h-4 w-4"></i>
+                    <i data-lucide="${alertIcon}" class="h-4 w-4 shrink-0"></i>
                     <span>${state.authError}</span>
                 </div>
             ` : '';
@@ -1038,4 +1122,5 @@
     </script>
 </body>
 </html>
+
 
