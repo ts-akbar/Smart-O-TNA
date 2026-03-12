@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem TNA KPM</title>
+    <title>Sistem DeBAKTI TNA</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
@@ -15,7 +15,7 @@
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-slate-50 font-sans text-slate-900">
+<body class="bg-slate-50 font-sans text-slate-900 relative">
 
     <!-- Container Utama -->
     <div id="app"></div>
@@ -58,7 +58,8 @@
             isLoginMode: true,
             authError: '',
             tempFormData: {},
-            adminViewingIc: null // ID Responden yg sedang dilihat oleh Admin
+            adminViewingIc: null, // ID Responden yg sedang dilihat oleh Admin
+            modalConfig: null // Konfigurasi pop-up (Alert/Confirm/Prompt) gantian kepada fungsi native
         };
 
         function saveData() {
@@ -112,9 +113,10 @@
                 const newUser = { ic, name, jawatan };
                 state.users.push(newUser);
                 saveData();
-                state.currentUser = newUser;
-                state.activeTab = 'dashboard';
-                state.adminViewingIc = null;
+                
+                // Paparan kembali ke log masuk automatik dgn notis
+                state.isLoginMode = true;
+                state.authError = "Pendaftaran berjaya! Sila log masuk dengan Kad Pengenalan anda.";
             }
             render();
         };
@@ -137,26 +139,92 @@
 
         window.viewUser = function(ic) {
             state.adminViewingIc = ic;
+            state.activeTab = 'dashboard'; // Tunjuk borang individu di dashboard
             render();
         };
 
         window.backToAdminList = function() {
             state.adminViewingIc = null;
+            state.activeTab = 'pengurusan'; // Kembali ke senarai pengurusan
             render();
         };
 
-        window.deleteUser = function(ic) {
-            if (confirm("Adakah anda pasti mahu memadam responden ini? Semua data borang yang berkaitan juga akan dipadam secara kekal.")) {
-                state.users = state.users.filter(u => u.ic !== ic);
-                delete state.responses[ic];
-                saveData();
-                render();
+        // --- SISTEM MODAL KHAS (Menggantikan window.confirm & window.prompt) ---
+        window.showModal = function(config) {
+            state.modalConfig = config;
+            render();
+        };
+
+        window.closeModal = function() {
+            state.modalConfig = null;
+            render();
+        };
+
+        window.handleModalConfirm = function() {
+            if (state.modalConfig && state.modalConfig.onConfirm) {
+                if (state.modalConfig.type === 'prompt') {
+                    const val = document.getElementById('modal-prompt-input').value;
+                    state.modalConfig.onConfirm(val);
+                } else {
+                    state.modalConfig.onConfirm();
+                }
+            }
+        };
+
+        // Fungsi Hapus Menggunakan Modal Khas
+        window.hapusPengguna = function(ic) {
+            const user = state.users.find(u => u.ic === ic);
+            const nama = user ? user.name : "Pengguna";
+
+            // Buka Modal Pengesahan (Ganti Confirm)
+            window.showModal({
+                type: 'confirm',
+                title: 'Pengesahan Hapus Responden',
+                message: `Adakah anda pasti mahu menghapuskan <strong>${nama}</strong> dan semua maklumat berkaitan?`,
+                onConfirm: function() {
+                    // Hapus data dari pangkalan data
+                    state.users = state.users.filter(u => u.ic !== ic);
+                    delete state.responses[ic];
+                    saveData();
+                    
+                    // Buka Modal Makluman (Ganti Alert)
+                    window.showModal({
+                        type: 'alert',
+                        title: 'Berjaya Dihapuskan',
+                        message: `Maklumat <strong>${nama}</strong> telah berjaya dihapuskan sepenuhnya.`
+                    });
+                }
+            });
+        };
+
+        // Fungsi Edit Menggunakan Modal Khas
+        window.editUser = function(ic) {
+            const user = state.users.find(u => u.ic === ic);
+            if(user) {
+                // Buka Modal Prompt (Ganti window.prompt)
+                window.showModal({
+                    type: 'prompt',
+                    title: 'Kemaskini Responden',
+                    message: 'Sila kemaskini Nama Lengkap Responden:',
+                    inputValue: user.name,
+                    onConfirm: function(newName) {
+                        if(newName && newName.trim() !== "") {
+                            user.name = newName.trim().toUpperCase();
+                            saveData();
+                            window.closeModal();
+                        }
+                    }
+                });
             }
         };
 
         window.handleRadioChange = function(key, value) {
             state.tempFormData[key] = parseInt(value);
             render(); 
+        };
+
+        window.handleTextChange = function(key, value) {
+            state.tempFormData[key] = value;
         };
 
         window.submitBorang = function(event) {
@@ -197,17 +265,69 @@
         function render() {
             const app = document.getElementById('app');
             if (!state.currentUser) {
-                app.innerHTML = renderAuthScreen();
+                app.innerHTML = renderAuthScreen() + renderModal();
             } else {
-                app.innerHTML = renderMainApp();
+                app.innerHTML = renderMainApp() + renderModal();
             }
             lucide.createIcons();
         }
 
+        // Paparan Modal (Pop-up Custom)
+        function renderModal() {
+            if (!state.modalConfig) return '';
+
+            const config = state.modalConfig;
+            let content = '';
+
+            if (config.type === 'alert') {
+                content = `
+                    <div class="flex justify-end mt-6">
+                        <button onclick="closeModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm">Tutup</button>
+                    </div>`;
+            } else if (config.type === 'confirm') {
+                content = `
+                    <div class="flex justify-end mt-6 space-x-3">
+                        <button onclick="closeModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-5 py-2.5 rounded-lg font-medium transition-colors border border-gray-300 shadow-sm">Batal</button>
+                        <button onclick="handleModalConfirm()" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm">Hapus</button>
+                    </div>`;
+            } else if (config.type === 'prompt') {
+                content = `
+                    <div class="mt-4">
+                        <input type="text" id="modal-prompt-input" value="${config.inputValue}" class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+                    </div>
+                    <div class="flex justify-end mt-6 space-x-3">
+                        <button onclick="closeModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-5 py-2.5 rounded-lg font-medium transition-colors border border-gray-300 shadow-sm">Batal</button>
+                        <button onclick="handleModalConfirm()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm">Simpan</button>
+                    </div>`;
+            }
+
+            let iconHtml = '';
+            if(config.type === 'confirm') iconHtml = '<i data-lucide="alert-triangle" class="text-red-500 w-6 h-6"></i>';
+            if(config.type === 'alert') iconHtml = '<i data-lucide="check-circle" class="text-green-500 w-6 h-6"></i>';
+            if(config.type === 'prompt') iconHtml = '<i data-lucide="edit" class="text-blue-500 w-6 h-6"></i>';
+
+            return `
+                <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900 bg-opacity-50 backdrop-blur-sm no-print">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100">
+                        <h3 class="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2">
+                            ${iconHtml}
+                            ${config.title}
+                        </h3>
+                        <p class="text-slate-600 text-sm">${config.message}</p>
+                        ${content}
+                    </div>
+                </div>
+            `;
+        }
+
         function renderAuthScreen() {
+            const isSuccess = state.authError && state.authError.includes('berjaya');
+            const alertClass = isSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600';
+            const alertIcon = isSuccess ? 'check-circle' : 'alert-circle';
+            
             const errorHtml = state.authError ? `
-                <div class="bg-red-50 text-red-600 p-3 rounded-lg flex items-center space-x-2 text-sm">
-                    <i data-lucide="alert-circle" class="h-4 w-4"></i>
+                <div class="${alertClass} p-3 rounded-lg flex items-center space-x-2 text-sm">
+                    <i data-lucide="${alertIcon}" class="h-4 w-4"></i>
                     <span>${state.authError}</span>
                 </div>
             ` : '';
@@ -238,14 +358,14 @@
             const toggleLink = state.isLoginMode ? "Daftar di sini" : "Log Masuk";
 
             return `
-            <div class="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-                <div class="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
+            <div class="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 relative">
+                <div class="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden z-10 mb-8">
                     <div class="bg-blue-800 p-6 text-center">
                         <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
                             <i data-lucide="bar-chart-3" class="h-8 w-8 text-blue-800"></i>
                         </div>
-                        <h2 class="text-2xl font-bold text-white">Sistem CerDIK TNA</h2>
-                        <p class="text-blue-200 mt-1">Training Needs Analysis KPM</p>
+                        <h2 class="text-2xl font-bold text-white">Sistem DeBAKTI TNA</h2>
+                        <p class="text-blue-200 mt-1">Analisa Keperluan Latihan</p>
                     </div>
                     
                     <form onsubmit="handleAuth(event)" class="p-8 space-y-5">
@@ -275,33 +395,60 @@
                         </p>
                     </div>
                 </div>
+
+                <!-- Footer Log Masuk -->
+                <div class="absolute bottom-6 w-full text-center text-sm text-slate-500 font-medium no-print">
+                    Powered By Ts. AKBAR @2026 Hak Cipta Terpelihara
+                </div>
             </div>
             `;
         }
 
         function renderMainApp() {
             let contentHtml = '';
+            
+            // Pastikan responden biasa tidak boleh akses tab admin secara tidak sah
+            if (state.currentUser.jawatan !== 'Admin' && ['analisis', 'pengurusan', 'analisis_latihan'].includes(state.activeTab)) {
+                state.activeTab = 'dashboard';
+            }
+
             if (state.activeTab === 'dashboard') contentHtml = renderDashboard();
             else if (state.activeTab === 'borang') contentHtml = renderBorang();
             else if (state.activeTab === 'analisis') contentHtml = renderAnalisis();
+            else if (state.activeTab === 'pengurusan') contentHtml = renderPengurusanResponden();
+            else if (state.activeTab === 'analisis_latihan') contentHtml = renderAnalisisLatihan();
 
             const getTabClass = (tab) => state.activeTab === tab 
                 ? 'bg-blue-100 text-blue-800 shadow-sm' 
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900';
 
-            const dashboardLabel = state.currentUser.jawatan === 'Admin' ? 'Dashboard Data' : 'Dashboard Individu';
+            const dashboardLabel = 'Dashboard Individu';
+
+            let adminTabs = '';
+            if (state.currentUser.jawatan === 'Admin') {
+                adminTabs = `
+                <button onclick="switchTab('pengurusan')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('pengurusan')}">
+                    <i data-lucide="users" class="h-4 w-4"></i><span>Pengurusan Responden</span>
+                </button>
+                <button onclick="switchTab('analisis')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('analisis')}">
+                    <i data-lucide="bar-chart-3" class="h-4 w-4"></i><span>Analisis Keseluruhan</span>
+                </button>
+                <button onclick="switchTab('analisis_latihan')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('analisis_latihan')}">
+                    <i data-lucide="list-checks" class="h-4 w-4"></i><span>Analisis Latihan</span>
+                </button>`;
+            }
 
             return `
-            <div class="min-h-screen bg-slate-50 font-sans">
+            <div class="min-h-screen bg-slate-50 font-sans flex flex-col relative">
                 <!-- Header -->
-                <header class="bg-blue-800 text-white shadow-md">
+                <header class="bg-blue-800 text-white shadow-md w-full">
                     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div class="flex justify-between h-16 items-center">
                             <div class="flex items-center space-x-3">
                                 <div class="bg-white p-1 rounded">
                                     <i data-lucide="bar-chart-3" class="h-6 w-6 text-blue-800"></i>
                                 </div>
-                                <h1 class="text-xl font-bold tracking-tight">Sistem TNA KPM</h1>
+                                <h1 class="text-xl font-bold tracking-tight">Sistem DeBAKTI TNA</h1>
                             </div>
                             <div class="flex items-center space-x-4">
                                 <div class="text-sm text-blue-100 hidden sm:block">
@@ -316,38 +463,41 @@
                     </div>
                 </header>
 
-                <!-- Navigasi Tab -->
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <!-- Pakej Navigasi & Container (Flex Grow Tolak Footer Ke Bawah) -->
+                <div class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                        <div class="flex space-x-1 bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit">
+                        <div class="flex flex-wrap gap-1 bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit">
                             <button onclick="switchTab('dashboard')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('dashboard')}">
                                 <i data-lucide="layout-dashboard" class="h-4 w-4"></i><span>${dashboardLabel}</span>
                             </button>
                             <button onclick="switchTab('borang')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('borang')}">
                                 <i data-lucide="file-text" class="h-4 w-4"></i><span>Borang TNA</span>
                             </button>
-                            <button onclick="switchTab('analisis')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${getTabClass('analisis')}">
-                                <i data-lucide="bar-chart-3" class="h-4 w-4"></i><span>Analisis Keseluruhan</span>
-                            </button>
+                            ${adminTabs}
                         </div>
 
-                        <button onclick="bukaDanEdit()" class="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm">
+                        <button onclick="bukaDanEdit()" class="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm whitespace-nowrap">
                             <i data-lucide="printer" class="h-4 w-4"></i><span>Edit & Cetak</span>
                         </button>
                     </div>
 
                     <!-- Kandungan Tab -->
-                    <main class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[60vh]">
+                    <main class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[60vh] mb-8">
                         <div id="printArea">
                             ${contentHtml}
                         </div>
                     </main>
                 </div>
+
+                <!-- Footer Utama App -->
+                <footer class="mt-auto py-6 border-t border-slate-200 bg-white text-center text-sm text-slate-500 font-medium no-print w-full">
+                    Powered By Ts. AKBAR @2026 Hak Cipta Terpelihara
+                </footer>
             </div>
             `;
         }
 
-        function renderAdminDashboardList() {
+        function renderPengurusanResponden() {
             const nonAdmins = state.users.filter(u => u.jawatan !== 'Admin');
             
             if (nonAdmins.length === 0) {
@@ -369,13 +519,20 @@
                 let keperluanLabel = `<span class="text-gray-400 text-sm">-</span>`;
                 
                 if (userResponses && Object.keys(userResponses).length > 0) {
-                    const allScores = Object.values(userResponses);
-                    purata = (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2);
-                    const keperluan = getTahapKeperluan(parseFloat(purata));
-                    statusBadge = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-green-100 text-green-700">Telah Menjawab</span>`;
-                    keperluanLabel = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${keperluan.bg} ${keperluan.color}">${keperluan.label}</span>`;
+                    // Extract numerical scores only (excluding manual texts like 'cadangan_latihan')
+                    const numericalScores = Object.keys(userResponses)
+                        .filter(k => k !== 'cadangan_latihan')
+                        .map(k => userResponses[k]);
+
+                    if (numericalScores.length > 0) {
+                        purata = (numericalScores.reduce((a, b) => a + b, 0) / numericalScores.length).toFixed(2);
+                        const keperluan = getTahapKeperluan(parseFloat(purata));
+                        statusBadge = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-green-100 text-green-700">Telah Menjawab</span>`;
+                        keperluanLabel = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${keperluan.bg} ${keperluan.color}">${keperluan.label}</span>`;
+                    }
                 }
 
+                // Tambah pointer-events-none pada ikon supaya klik fokus tepat pada butang.
                 trs += `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-6 py-4 text-sm text-slate-500 text-center">${index + 1}</td>
@@ -387,12 +544,16 @@
                     <td class="px-6 py-4 text-center">${keperluanLabel}</td>
                     <td class="px-6 py-4 text-center no-print">
                         <div class="flex items-center justify-center space-x-3">
-                            <button onclick="viewUser('${user.ic}')" class="text-blue-600 hover:text-blue-800 hover:underline text-sm font-semibold flex items-center justify-center space-x-1">
-                                <span>Lihat Skor</span>
+                            <button onclick="viewUser('${user.ic}')" class="text-blue-600 hover:text-blue-800 hover:underline text-sm font-semibold flex items-center justify-center space-x-1" title="Lihat Borang">
+                                <i data-lucide="eye" class="h-4 w-4 pointer-events-none"></i>
                             </button>
                             <span class="text-gray-300">|</span>
-                            <button onclick="deleteUser('${user.ic}')" class="text-red-500 hover:text-red-700 hover:underline text-sm font-semibold flex items-center justify-center space-x-1">
-                                <span>Hapus</span>
+                            <button onclick="editUser('${user.ic}')" class="text-amber-500 hover:text-amber-700 hover:underline text-sm font-semibold flex items-center justify-center space-x-1" title="Edit Pengguna">
+                                <i data-lucide="edit" class="h-4 w-4 pointer-events-none"></i>
+                            </button>
+                            <span class="text-gray-300">|</span>
+                            <button onclick="hapusPengguna('${user.ic}')" class="text-red-500 hover:text-red-700 hover:underline text-sm font-semibold flex items-center justify-center space-x-1" title="Hapus Pengguna">
+                                <i data-lucide="trash-2" class="h-4 w-4 pointer-events-none"></i>
                             </button>
                         </div>
                     </td>
@@ -402,8 +563,8 @@
             return `
             <div>
                 <div class="mb-8">
-                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Pangkalan Data Responden</h2>
-                    <p class="text-gray-600">Senarai keseluruhan jawapan borang TNA (Hanya paparan Guru & AKP).</p>
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Pengurusan Responden</h2>
+                    <p class="text-gray-600">Pangkalan data keseluruhan profil Guru & AKP berserta status penilaian TNA mereka.</p>
                 </div>
                 <div class="overflow-x-auto rounded-xl border border-slate-200">
                     <table class="min-w-full divide-y divide-slate-200">
@@ -428,12 +589,17 @@
         }
 
         function renderDashboard() {
-            // Jika Admin dan tak tengok IC spesifik, tunjuk Senarai Penuh Admin
             if (state.currentUser.jawatan === 'Admin' && !state.adminViewingIc) {
-                return renderAdminDashboardList();
+                return `
+                <div class="text-center py-16">
+                    <div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="shield-check" class="h-10 w-10 text-blue-500"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Selamat Datang ke Dashboard Admin</h3>
+                    <p class="text-gray-500 mb-6 max-w-md mx-auto">Sila gunakan tab <strong>Pengurusan Responden</strong> untuk mengurus pangkalan data profil dan skor, atau rujuk menu navigasi yang lain untuk analisis mendalam.</p>
+                </div>`;
             }
 
-            // Tentukan target yang sedang dilihat (Sama ada user sendiri atau admin tgh view user lain)
             const targetIc = (state.currentUser.jawatan === 'Admin' && state.adminViewingIc) 
                 ? state.adminViewingIc 
                 : state.currentUser.ic;
@@ -450,7 +616,7 @@
                     </div>
                     <h3 class="text-xl font-bold text-gray-900 mb-2">Tiada Rekod Ditemui</h3>
                     <p class="text-gray-500 mb-6 max-w-md mx-auto">
-                        ${isViewByAdmin ? `Responden ini (${targetUser ? targetUser.name : targetIc}) belum melengkapkan borang.` : 'Anda belum melengkapkan borang Analisis Keperluan Latihan (TNA) untuk tahun ini.'}
+                        ${isViewByAdmin ? `Responden ini (${targetUser ? targetUser.name : targetIc}) belum melengkapkan borang.` : 'Anda belum melengkapkan borang Analisa Keperluan Latihan untuk tahun ini.'}
                     </p>
                     ${isViewByAdmin 
                         ? `<button onclick="backToAdminList()" class="bg-slate-600 hover:bg-slate-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors shadow-sm">Kembali ke Senarai</button>`
@@ -459,8 +625,13 @@
                 </div>`;
             }
 
-            const allScores = Object.values(userResponses);
-            const purata = (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(2);
+            const numericalScores = Object.keys(userResponses)
+                .filter(k => k !== 'cadangan_latihan')
+                .map(k => userResponses[k]);
+
+            const purata = numericalScores.length > 0 
+                ? (numericalScores.reduce((a, b) => a + b, 0) / numericalScores.length).toFixed(2) 
+                : '0.00';
             const keperluanKeseluruhan = getTahapKeperluan(parseFloat(purata));
 
             let trs = '';
@@ -486,6 +657,8 @@
                 });
             });
 
+            const manualCadangan = userResponses['cadangan_latihan'] || '-';
+
             return `
             <div>
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -509,7 +682,7 @@
                     </div>
                 </div>
 
-                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                <div class="overflow-x-auto rounded-xl border border-slate-200 mb-6">
                     <table class="min-w-full divide-y divide-slate-200">
                         <thead class="bg-slate-100">
                             <tr>
@@ -523,6 +696,11 @@
                             ${trs}
                         </tbody>
                     </table>
+                </div>
+
+                <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 mt-6">
+                    <h4 class="text-lg font-bold text-slate-800 mb-2">Cadangan Latihan (Manual)</h4>
+                    <p class="text-slate-700 whitespace-pre-wrap">${manualCadangan}</p>
                 </div>
                 
                 <div class="mt-6 flex justify-end no-print">
@@ -542,12 +720,12 @@
                         <i data-lucide="shield-alert" class="h-10 w-10 text-blue-500"></i>
                     </div>
                     <h3 class="text-xl font-bold text-gray-900 mb-2">Akses Terhad (Admin)</h3>
-                    <p class="text-gray-500 mb-6 max-w-md mx-auto">Jawatan Admin tidak perlu mengisi Borang TNA dan markah tidak akan dikira ke dalam jumlah purata keseluruhan. Sila rujuk Tab Analisis untuk melihat laporan responden.</p>
+                    <p class="text-gray-500 mb-6 max-w-md mx-auto">Jawatan Admin tidak perlu mengisi Borang TNA dan markah tidak akan dikira ke dalam jumlah purata keseluruhan.</p>
                 </div>`;
             }
 
             const totalQuestions = BIDANG_DATA.reduce((acc, curr) => acc + curr.sub.length, 0);
-            const answeredQuestions = Object.keys(state.tempFormData).length;
+            const answeredQuestions = Object.keys(state.tempFormData).filter(k => k !== 'cadangan_latihan').length;
             const progress = Math.round((answeredQuestions / totalQuestions) * 100);
 
             let formBlocks = '';
@@ -586,6 +764,19 @@
                 </div>`;
             });
 
+            // Cadangan Latihan Input
+            const currentCadangan = state.tempFormData['cadangan_latihan'] || '';
+            formBlocks += `
+            <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <div class="bg-blue-50 px-6 py-4 border-b border-blue-100">
+                    <h3 class="font-bold text-blue-900 text-lg">Cadangan Latihan</h3>
+                </div>
+                <div class="p-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Input Medan boleh taip sendiri:</label>
+                    <textarea onchange="handleTextChange('cadangan_latihan', this.value)" rows="3" placeholder="Sila taip cadangan latihan anda di sini..." class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">${currentCadangan}</textarea>
+                </div>
+            </div>`;
+
             return `
             <div>
                 <div class="mb-6">
@@ -620,7 +811,6 @@
             const validUsers = state.users.filter(u => u.jawatan !== 'Admin');
             const validIcs = validUsers.map(u => u.ic);
             
-            // Dapatkan jawapan hanya daripada IC yang bukan Admin
             const validResponsesArray = Object.keys(state.responses)
                 .filter(ic => validIcs.includes(ic))
                 .map(ic => state.responses[ic]);
@@ -716,6 +906,61 @@
                                 <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Kategori Bidang Utama</th>
                                 <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">Purata Skor</th>
                                 <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">% Diperlukan (Skor ≥ 4)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-200">
+                            ${trs}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        }
+
+        function renderAnalisisLatihan() {
+            const validUsers = state.users.filter(u => u.jawatan !== 'Admin');
+            let trs = '';
+            let count = 0;
+            
+            validUsers.forEach((user) => {
+                const res = state.responses[user.ic];
+                if (res && res['cadangan_latihan'] && res['cadangan_latihan'].trim() !== '') {
+                    count++;
+                    trs += `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-6 py-4 text-sm text-slate-500 text-center">${count}</td>
+                        <td class="px-6 py-4 text-sm font-bold text-slate-800">${user.name}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600">${user.ic}</td>
+                        <td class="px-6 py-4 text-sm text-slate-700 whitespace-pre-wrap">${res['cadangan_latihan']}</td>
+                    </tr>`;
+                }
+            });
+
+            if (count === 0) {
+                return `
+                <div class="text-center py-16">
+                    <div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="list-checks" class="h-10 w-10 text-blue-500"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Tiada Cadangan Latihan Ditemui</h3>
+                    <p class="text-gray-500 mb-6 max-w-md mx-auto">Setakat ini, belum ada responden yang mengisi cadangan latihan manual dalam Borang TNA mereka.</p>
+                </div>`;
+            }
+
+            return `
+            <div>
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Analisis Latihan (Cadangan Manual)</h2>
+                    <p class="text-gray-600">Senarai cadangan latihan tambahan yang diisi dan ditaip sendiri oleh para responden.</p>
+                </div>
+
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider w-16">Bil</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider w-1/4">Nama Lengkap</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider w-1/6">No. IC</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Teks Cadangan Latihan</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-slate-200">
